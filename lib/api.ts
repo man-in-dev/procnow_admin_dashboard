@@ -273,3 +273,69 @@ export async function sendEnquiryRfq(
   }
 }
 
+// Quote Types
+export interface Quote {
+  _id?: string;
+  vendorAssignmentId: any;
+  unitPrice?: string;
+  deliveryDate?: string | Date;
+  validTill?: string | Date;
+  description?: string;
+  attachment?: string;
+  visibletoClient: boolean;
+  quoteStatus: string;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+}
+
+/**
+ * Get all quotes for an enquiry (admin endpoint)
+ * Calls: GET /api/admin/enquiries/:enquiryId/quotes
+ */
+export async function getEnquiryQuotes(token: string, enquiryId: string): Promise<Quote[]> {
+  const response = await fetch(`${API_URL}/api/admin/enquiries/${enquiryId}/quotes`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const responseData: ApiSuccessResponse<{ quotes: Quote[] }> | ApiErrorResponse = await response.json();
+
+  if (!response.ok || !responseData.success) {
+    const errorResponse = responseData as ApiErrorResponse;
+    throw new Error(errorResponse.message || errorResponse.error || 'Failed to get quotes');
+  }
+
+  return (responseData as ApiSuccessResponse<{ quotes: Quote[] }>).data.quotes;
+}
+
+/**
+ * Send selected quotes to buyer (admin endpoint)
+ * Calls: POST /api/admin/enquiries/:enquiryId/quotes/send-to-buyer
+ */
+export async function sendQuotesToBuyer(
+  token: string,
+  enquiryId: string,
+  quoteIds: string[]
+): Promise<{ count: number }> {
+  const response = await fetch(`${API_URL}/api/admin/enquiries/${enquiryId}/quotes/send-to-buyer`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ quoteIds }),
+  });
+
+  const responseData: ApiSuccessResponse<{ count: number }> | ApiErrorResponse = await response.json();
+
+  if (!response.ok || !responseData.success) {
+    const errorResponse = responseData as ApiErrorResponse;
+    throw new Error(errorResponse.message || errorResponse.error || 'Failed to send quotes to buyer');
+  }
+
+  return (responseData as ApiSuccessResponse<{ count: number }>).data;
+}
+

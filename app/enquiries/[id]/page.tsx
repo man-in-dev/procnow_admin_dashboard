@@ -10,10 +10,13 @@ import {
   getCurrentUser,
   getVendors,
   sendEnquiryRfq,
+  getEnquiryQuotes,
+  sendQuotesToBuyer,
   type Enquiry,
   type EnquiryProduct,
   type ProductSheetItem,
   type Vendor,
+  type Quote,
 } from '@/lib/api';
 
 export default function EnquiryDetailPage() {
@@ -33,6 +36,11 @@ export default function EnquiryDetailPage() {
   const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
   const [assignedVendors, setAssignedVendors] = useState<Record<string, Vendor[]>>({});
   const [isRfqModalOpen, setIsRfqModalOpen] = useState(false);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [quotesLoading, setQuotesLoading] = useState(false);
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
+  const [selectedQuotes, setSelectedQuotes] = useState<Set<string>>(new Set());
+  const [isSendingQuotes, setIsSendingQuotes] = useState(false);
 
   // Load assigned vendors from localStorage (if any)
   useEffect(() => {
@@ -77,8 +85,15 @@ export default function EnquiryDetailPage() {
   useEffect(() => {
     if (enquiryId && !isAuthLoading) {
       loadEnquiry();
+      loadQuotes();
     }
   }, [enquiryId, isAuthLoading]);
+
+  useEffect(() => {
+    if (activeTab === 'quotesReceived' && enquiryId && !isAuthLoading) {
+      loadQuotes();
+    }
+  }, [activeTab, enquiryId, isAuthLoading]);
 
   const loadEnquiry = async () => {
     try {
@@ -95,6 +110,24 @@ export default function EnquiryDetailPage() {
       console.error('Error loading enquiry:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadQuotes = async () => {
+    try {
+      setQuotesLoading(true);
+      const token = getAuthToken();
+      if (!token) {
+        console.error('No auth token found');
+        return;
+      }
+
+      const quotesData = await getEnquiryQuotes(token, enquiryId);
+      setQuotes(quotesData);
+    } catch (error) {
+      console.error('Error loading quotes:', error);
+    } finally {
+      setQuotesLoading(false);
     }
   };
 
@@ -448,7 +481,7 @@ export default function EnquiryDetailPage() {
                         : 'border-transparent text-gray-600 hover:text-gray-900'
                     }`}
                   >
-                    Quotes Received (3)
+                    Quotes Received ({quotes.length})
                   </button>
                 </div>
 
@@ -610,8 +643,252 @@ export default function EnquiryDetailPage() {
                   )}
 
                   {activeTab === 'quotesReceived' && (
+                    <div className="p-6">
+                      {/* Send to Buyer Button */}
+                      {quotes.length > 0 && selectedQuotes.size > 0 && (
+                        <div className="mb-4 flex items-center justify-between bg-teal-50 border border-teal-200 rounded-lg p-4">
+                          <div>
+                            <p className="text-sm font-medium text-teal-900">
+                              {selectedQuotes.size} {selectedQuotes.size === 1 ? 'quote' : 'quotes'} selected
+                            </p>
+                            <p className="text-xs text-teal-700 mt-1">
+                              Selected quotes will be made visible to the buyer
+                            </p>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (!enquiryId || selectedQuotes.size === 0) return;
+                              
+                              try {
+                                setIsSendingQuotes(true);
+                                const token = getAuthToken();
+                                if (!token) {
+                                  alert('Not authenticated');
+                                  return;
+                                }
+
+                                const quoteIds = Array.from(selectedQuotes);
+                                await sendQuotesToBuyer(token, enquiryId, quoteIds);
+                                
+                                // Clear selection and reload quotes
+                                setSelectedQuotes(new Set());
+                                loadQuotes();
+                                alert(`Successfully sent ${quoteIds.length} ${quoteIds.length === 1 ? 'quote' : 'quotes'} to buyer!`);
+                              } catch (error: any) {
+                                console.error('Error sending quotes to buyer:', error);
+                                alert(error.message || 'Failed to send quotes to buyer');
+                              } finally {
+                                setIsSendingQuotes(false);
+                              }
+                            }}
+                            disabled={isSendingQuotes}
+                            className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isSendingQuotes ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                                <span>Sending...</span>
+                              </>
+                            ) : (
+                              <>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M22 2L11 13"></path>
+                                  <path d="M22 2l-7 20-4-9-9-4 20-7z"></path>
+                                </svg>
+                                <span>Send to Buyer</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                      {quotesLoading ? (
+                        <div className="text-center py-12">
+                          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-teal-500 border-t-transparent mb-4"></div>
+                          <p className="text-gray-600">Loading quotes...</p>
+                        </div>
+                      ) : quotes.length === 0 ? (
                     <div className="text-center py-12 text-gray-500">
-                      Quotes Received content coming soon
+                          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-4 text-gray-400">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                          </svg>
+                          <p className="text-lg">No quotes received yet</p>
+                          <p className="text-sm mt-2">Quotes submitted by vendors will appear here</p>
+                        </div>
+                      ) : (() => {
+                        // Group quotes by product
+                        const quotesByProduct = new Map<string, Quote[]>();
+                        
+                        quotes.forEach((quote) => {
+                          const assignment = quote.vendorAssignmentId as any;
+                          const enquiryProduct = assignment?.enquiryProductId as any;
+                          const product = enquiryProduct?.productsheetitemid as any;
+                          const productId = product?._id?.toString() || 'unknown';
+                          const productName = product?.displayName || product?.externalRef || 'Unknown Product';
+                          
+                          if (!quotesByProduct.has(productId)) {
+                            quotesByProduct.set(productId, []);
+                          }
+                          quotesByProduct.get(productId)!.push(quote);
+                        });
+
+                        const toggleProduct = (productId: string) => {
+                          setExpandedProducts((prev) => {
+                            const newSet = new Set(prev);
+                            if (newSet.has(productId)) {
+                              newSet.delete(productId);
+                            } else {
+                              newSet.add(productId);
+                            }
+                            return newSet;
+                          });
+                        };
+
+                        return (
+                          <div className="space-y-3">
+                            {Array.from(quotesByProduct.entries()).map(([productId, productQuotes]) => {
+                              const firstQuote = productQuotes[0];
+                              const assignment = firstQuote.vendorAssignmentId as any;
+                              const enquiryProduct = assignment?.enquiryProductId as any;
+                              const product = enquiryProduct?.productsheetitemid as any;
+                              const productName = product?.displayName || product?.externalRef || 'Unknown Product';
+                              const isExpanded = expandedProducts.has(productId);
+
+                              return (
+                                <div key={productId} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                  {/* Accordion Header */}
+                                  <button
+                                    onClick={() => toggleProduct(productId)}
+                                    className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <svg
+                                        width="20"
+                                        height="20"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        className={`text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                      >
+                                        <polyline points="9 18 15 12 9 6"></polyline>
+                                      </svg>
+                                      <h3 className="text-lg font-semibold text-gray-900">{productName}</h3>
+                                      <span className="px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-full">
+                                        {productQuotes.length} {productQuotes.length === 1 ? 'quote' : 'quotes'}
+                                      </span>
+                                    </div>
+                                  </button>
+
+                                  {/* Accordion Content */}
+                                  {isExpanded && (
+                                    <div className="border-t border-gray-200 p-4 space-y-4">
+                                      {productQuotes.map((quote) => {
+                                        const quoteAssignment = quote.vendorAssignmentId as any;
+                                        const vendor = quoteAssignment?.vendorId as any;
+                                        const quoteId = quote._id || '';
+                                        const isSelected = selectedQuotes.has(quoteId);
+                                        
+                                        const handleQuoteSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+                                          e.stopPropagation();
+                                          setSelectedQuotes((prev) => {
+                                            const newSet = new Set(prev);
+                                            if (newSet.has(quoteId)) {
+                                              newSet.delete(quoteId);
+                                            } else {
+                                              newSet.add(quoteId);
+                                            }
+                                            return newSet;
+                                          });
+                                        };
+                                        
+                                        return (
+                                          <div key={quote._id} className={`bg-gray-50 border rounded-lg p-4 transition-colors ${isSelected ? 'border-teal-500 bg-teal-50' : 'border-gray-200'}`}>
+                                            <div className="flex items-start justify-between mb-3">
+                                              <div className="flex items-center gap-3">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isSelected}
+                                                  onChange={handleQuoteSelect}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500 cursor-pointer"
+                                                />
+                                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                                  quote.quoteStatus === 'Submitted' ? 'bg-blue-100 text-blue-800' :
+                                                  quote.quoteStatus === 'Accepted' ? 'bg-green-100 text-green-800' :
+                                                  quote.quoteStatus === 'Rejected' ? 'bg-red-100 text-red-800' :
+                                                  'bg-gray-100 text-gray-800'
+                                                }`}>
+                                                  {quote.quoteStatus}
+                                                </span>
+                                                <span className="text-sm font-medium text-gray-900">
+                                                  {vendor?.auth?.name || 'Unknown Vendor'}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                              <div>
+                                                <p className="text-gray-500">Unit Price</p>
+                                                <p className="font-medium text-gray-900">{quote.unitPrice || 'N/A'}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-gray-500">Delivery Date</p>
+                                                <p className="font-medium text-gray-900">
+                                                  {quote.deliveryDate ? new Date(quote.deliveryDate).toLocaleDateString() : 'N/A'}
+                                                </p>
+                                              </div>
+                                              <div>
+                                                <p className="text-gray-500">Valid Till</p>
+                                                <p className="font-medium text-gray-900">
+                                                  {quote.validTill ? new Date(quote.validTill).toLocaleDateString() : 'N/A'}
+                                                </p>
+                                              </div>
+                                              <div>
+                                                <p className="text-gray-500">Submitted</p>
+                                                <p className="font-medium text-gray-900">
+                                                  {quote.createdAt ? new Date(quote.createdAt).toLocaleDateString() : 'N/A'}
+                                                </p>
+                                              </div>
+                                            </div>
+                                            {quote.description && (
+                                              <div className="mt-3">
+                                                <p className="text-sm text-gray-500 mb-1">Description</p>
+                                                <p className="text-sm text-gray-900">{quote.description}</p>
+                    </div>
+                  )}
+                                            {quote.attachment && (
+                                              <div className="mt-3">
+                                                <a 
+                                                  href={quote.attachment} 
+                                                  target="_blank" 
+                                                  rel="noopener noreferrer"
+                                                  className="text-sm text-teal-600 hover:text-teal-700 flex items-center gap-2"
+                                                >
+                                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                  </svg>
+                                                  View Attachment
+                                                </a>
+                </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
